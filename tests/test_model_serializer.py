@@ -7,21 +7,25 @@ an appropriate set of serializer fields for each case.
 """
 from __future__ import unicode_literals
 
+import datetime
 import decimal
+import sys
 from collections import OrderedDict
 
+import django
 import pytest
 from django.core.exceptions import ImproperlyConfigured
 from django.core.validators import (
     MaxValueValidator, MinLengthValidator, MinValueValidator
 )
 from django.db import models
-from django.db.models import DurationField as ModelDurationField
 from django.test import TestCase
 from django.utils import six
 
 from rest_framework import serializers
-from rest_framework.compat import unicode_repr
+from rest_framework.compat import postgres_fields, unicode_repr
+
+from .models import NestedForeignKeySource
 
 
 def dedent(blocktext):
@@ -179,7 +183,7 @@ class TestRegularFieldMappings(TestCase):
                 null_boolean_field = NullBooleanField(required=False)
                 positive_integer_field = IntegerField()
                 positive_small_integer_field = IntegerField()
-                slug_field = SlugField(max_length=100)
+                slug_field = SlugField(allow_unicode=False, max_length=100)
                 small_integer_field = IntegerField()
                 text_field = CharField(max_length=100, style={'base_template': 'textarea.html'})
                 file_field = FileField(max_length=100)
@@ -216,6 +220,25 @@ class TestRegularFieldMappings(TestCase):
                 "(u'red', u'Red'), (u'blue', u'Blue'), (u'green', u'Green')"
             )
         self.assertEqual(unicode_repr(TestSerializer()), expected)
+
+    # merge this into test_regular_fields / RegularFieldsModel when
+    # Django 2.1 is the minimum supported version
+    @pytest.mark.skipif(django.VERSION < (2, 1), reason='Django version < 2.1')
+    def test_nullable_boolean_field(self):
+        class NullableBooleanModel(models.Model):
+            field = models.BooleanField(null=True, default=False)
+
+        class NullableBooleanSerializer(serializers.ModelSerializer):
+            class Meta:
+                model = NullableBooleanModel
+                fields = ['field']
+
+        expected = dedent("""
+            NullableBooleanSerializer():
+                field = BooleanField(allow_null=True, required=False)
+        """)
+
+        self.assertEqual(unicode_repr(NullableBooleanSerializer()), expected)
 
     def test_method_field(self):
         """
@@ -347,7 +370,7 @@ class TestDurationFieldMapping(TestCase):
             """
             A model that defines DurationField.
             """
-            duration_field = ModelDurationField()
+            duration_field = models.DurationField()
 
         class TestSerializer(serializers.ModelSerializer):
             class Meta:
@@ -358,6 +381,31 @@ class TestDurationFieldMapping(TestCase):
             TestSerializer():
                 id = IntegerField(label='ID', read_only=True)
                 duration_field = DurationField()
+        """)
+        self.assertEqual(unicode_repr(TestSerializer()), expected)
+
+    def test_duration_field_with_validators(self):
+        class ValidatedDurationFieldModel(models.Model):
+            """
+            A model that defines DurationField with validators.
+            """
+            duration_field = models.DurationField(
+                validators=[MinValueValidator(datetime.timedelta(days=1)), MaxValueValidator(datetime.timedelta(days=3))]
+            )
+
+        class TestSerializer(serializers.ModelSerializer):
+            class Meta:
+                model = ValidatedDurationFieldModel
+                fields = '__all__'
+
+        expected = dedent("""
+            TestSerializer():
+                id = IntegerField(label='ID', read_only=True)
+                duration_field = DurationField(max_value=datetime.timedelta(3), min_value=datetime.timedelta(1))
+        """) if sys.version_info < (3, 7) else dedent("""
+            TestSerializer():
+                id = IntegerField(label='ID', read_only=True)
+                duration_field = DurationField(max_value=datetime.timedelta(days=3), min_value=datetime.timedelta(days=1))
         """)
         self.assertEqual(unicode_repr(TestSerializer()), expected)
 
@@ -377,6 +425,54 @@ class TestGenericIPAddressFieldValidation(TestCase):
         self.assertEqual(1, len(s.errors['address']),
                          'Unexpected number of validation errors: '
                          '{0}'.format(s.errors))
+
+
+@pytest.mark.skipif('not postgres_fields')
+class TestPosgresFieldsMapping(TestCase):
+    def test_hstore_field(self):
+        class HStoreFieldModel(models.Model):
+            hstore_field = postgres_fields.HStoreField()
+
+        class TestSerializer(serializers.ModelSerializer):
+            class Meta:
+                model = HStoreFieldModel
+                fields = ['hstore_field']
+
+        expected = dedent("""
+            TestSerializer():
+                hstore_field = HStoreField()
+        """)
+        self.assertEqual(unicode_repr(TestSerializer()), expected)
+
+    def test_array_field(self):
+        class ArrayFieldModel(models.Model):
+            array_field = postgres_fields.ArrayField(base_field=models.CharField())
+
+        class TestSerializer(serializers.ModelSerializer):
+            class Meta:
+                model = ArrayFieldModel
+                fields = ['array_field']
+
+        expected = dedent("""
+            TestSerializer():
+                array_field = ListField(child=CharField(label='Array field', validators=[<django.core.validators.MaxLengthValidator object>]))
+        """)
+        self.assertEqual(unicode_repr(TestSerializer()), expected)
+
+    def test_json_field(self):
+        class JSONFieldModel(models.Model):
+            json_field = postgres_fields.JSONField()
+
+        class TestSerializer(serializers.ModelSerializer):
+            class Meta:
+                model = JSONFieldModel
+                fields = ['json_field']
+
+        expected = dedent("""
+            TestSerializer():
+                json_field = JSONField(style={'base_template': 'textarea.html'})
+        """)
+        self.assertEqual(unicode_repr(TestSerializer()), expected)
 
 
 # Tests for relational field mappings.
@@ -1116,6 +1212,25 @@ class Test5004UniqueChoiceField(TestCase):
 
 
 class TestFieldSource(TestCase):
+    def test_traverse_nullable_fk(self):
+        """
+        A dotted source with nullable elements uses default when any item in the chain is None. #5849.
+
+        Similar to model example from test_serializer.py `test_default_for_multiple_dotted_source` method,
+        but using RelatedField, rather than CharField.
+        """
+        class TestSerializer(serializers.ModelSerializer):
+            target = serializers.PrimaryKeyRelatedField(
+                source='target.target', read_only=True, allow_null=True, default=None
+            )
+
+            class Meta:
+                model = NestedForeignKeySource
+                fields = ('target', )
+
+        model = NestedForeignKeySource.objects.create()
+        assert TestSerializer(model).data['target'] is None
+
     def test_named_field_source(self):
         class TestSerializer(serializers.ModelSerializer):
 
@@ -1134,3 +1249,28 @@ class TestFieldSource(TestCase):
         """)
         self.maxDiff = None
         self.assertEqual(unicode_repr(TestSerializer()), expected)
+
+
+class Issue6110TestModel(models.Model):
+    """Model without .objects manager."""
+
+    name = models.CharField(max_length=64)
+    all_objects = models.Manager()
+
+
+class Issue6110ModelSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Issue6110TestModel
+        fields = ('name',)
+
+
+class Issue6110Test(TestCase):
+
+    def test_model_serializer_custom_manager(self):
+        instance = Issue6110ModelSerializer().create({'name': 'test_name'})
+        self.assertEqual(instance.name, 'test_name')
+
+    def test_model_serializer_custom_manager_error_message(self):
+        msginitial = ('Got a `TypeError` when calling `Issue6110TestModel.all_objects.create()`.')
+        with self.assertRaisesMessage(TypeError, msginitial):
+            Issue6110ModelSerializer().create({'wrong_param': 'wrong_param'})

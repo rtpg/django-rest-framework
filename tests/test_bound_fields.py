@@ -54,7 +54,7 @@ class TestSimpleBoundField:
 
         serializer = ExampleSerializer()
         del serializer.fields['text']
-        assert 'text' not in serializer.fields.keys()
+        assert 'text' not in serializer.fields
 
     def test_as_form_fields(self):
         class ExampleSerializer(serializers.Serializer):
@@ -151,7 +151,7 @@ class TestNestedBoundField:
                 '<legend>Nested1</legend>'
                 '<divclass="form-group">'
                 '<label>Textfield</label>'
-                '<inputname="nested2.nested1.text_field"class="form-control"type="text">'
+                '<inputname="nested2.nested1.text_field"class="form-control"type="text"value="">'
                 '</div>'
                 '</fieldset>'
                 '<divclass="form-group">'

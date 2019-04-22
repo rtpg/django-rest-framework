@@ -10,22 +10,21 @@ from rest_framework import (
     filters, generics, pagination, permissions, serializers
 )
 from rest_framework.compat import coreapi, coreschema, get_regex_pattern, path
-from rest_framework.decorators import (
-    api_view, detail_route, list_route, schema
-)
+from rest_framework.decorators import action, api_view, schema
 from rest_framework.request import Request
 from rest_framework.routers import DefaultRouter, SimpleRouter
 from rest_framework.schemas import (
     AutoSchema, ManualSchema, SchemaGenerator, get_schema_view
 )
 from rest_framework.schemas.generators import EndpointEnumerator
+from rest_framework.schemas.inspectors import field_to_schema
 from rest_framework.schemas.utils import is_list_view
 from rest_framework.test import APIClient, APIRequestFactory
 from rest_framework.utils import formatting
 from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet, ModelViewSet
 
-from .models import BasicModel
+from .models import BasicModel, ForeignKeySource, ManyToManySource
 
 factory = APIRequestFactory()
 
@@ -51,6 +50,10 @@ class ExampleSerializer(serializers.Serializer):
     hidden = serializers.HiddenField(default='hello')
 
 
+class AnotherSerializerWithDictField(serializers.Serializer):
+    a = serializers.DictField()
+
+
 class AnotherSerializerWithListFields(serializers.Serializer):
     a = serializers.ListField(child=serializers.IntegerField())
     b = serializers.ListSerializer(child=serializers.CharField())
@@ -67,32 +70,67 @@ class ExampleViewSet(ModelViewSet):
     filter_backends = [filters.OrderingFilter]
     serializer_class = ExampleSerializer
 
-    @detail_route(methods=['post'], serializer_class=AnotherSerializer)
+    @action(methods=['post'], detail=True, serializer_class=AnotherSerializer)
     def custom_action(self, request, pk):
         """
         A description of custom action.
         """
-        return super(ExampleSerializer, self).retrieve(self, request)
+        raise NotImplementedError
 
-    @detail_route(methods=['post'], serializer_class=AnotherSerializerWithListFields)
+    @action(methods=['post'], detail=True, serializer_class=AnotherSerializerWithDictField)
+    def custom_action_with_dict_field(self, request, pk):
+        """
+        A custom action using a dict field in the serializer.
+        """
+        raise NotImplementedError
+
+    @action(methods=['post'], detail=True, serializer_class=AnotherSerializerWithListFields)
     def custom_action_with_list_fields(self, request, pk):
         """
         A custom action using both list field and list serializer in the serializer.
         """
-        return super(ExampleSerializer, self).retrieve(self, request)
+        raise NotImplementedError
 
-    @list_route()
+    @action(detail=False)
     def custom_list_action(self, request):
-        return super(ExampleViewSet, self).list(self, request)
+        raise NotImplementedError
 
-    @list_route(methods=['post', 'get'], serializer_class=EmptySerializer)
+    @action(methods=['post', 'get'], detail=False, serializer_class=EmptySerializer)
     def custom_list_action_multiple_methods(self, request):
-        return super(ExampleViewSet, self).list(self, request)
+        """Custom description."""
+        raise NotImplementedError
+
+    @custom_list_action_multiple_methods.mapping.delete
+    def custom_list_action_multiple_methods_delete(self, request):
+        """Deletion description."""
+        raise NotImplementedError
+
+    @action(detail=False, schema=None)
+    def excluded_action(self, request):
+        pass
 
     def get_serializer(self, *args, **kwargs):
         assert self.request
         assert self.action
         return super(ExampleViewSet, self).get_serializer(*args, **kwargs)
+
+    @action(methods=['get', 'post'], detail=False)
+    def documented_custom_action(self, request):
+        """
+        get:
+        A description of the get method on the custom action.
+
+        post:
+        A description of the post method on the custom action.
+        """
+        pass
+
+    @documented_custom_action.mapping.put
+    def put_documented_custom_action(self, request, *args, **kwargs):
+        """
+        A description of the put method on the custom action from mapping.
+        """
+        pass
 
 
 if coreapi:
@@ -102,7 +140,7 @@ else:
         pass
 
 router = DefaultRouter()
-router.register('example', ExampleViewSet, base_name='example')
+router.register('example', ExampleViewSet, basename='example')
 urlpatterns = [
     url(r'^$', schema_view),
     url(r'^', include(router.urls))
@@ -137,7 +175,15 @@ class TestRouterGeneratedSchema(TestCase):
                     'custom_list_action_multiple_methods': {
                         'read': coreapi.Link(
                             url='/example/custom_list_action_multiple_methods/',
-                            action='get'
+                            action='get',
+                            description='Custom description.',
+                        )
+                    },
+                    'documented_custom_action': {
+                        'read': coreapi.Link(
+                            url='/example/documented_custom_action/',
+                            action='get',
+                            description='A description of the get method on the custom action.',
                         )
                     },
                     'read': coreapi.Link(
@@ -200,6 +246,16 @@ class TestRouterGeneratedSchema(TestCase):
                             coreapi.Field('d', required=False, location='form', schema=coreschema.String(title='D')),
                         ]
                     ),
+                    'custom_action_with_dict_field': coreapi.Link(
+                        url='/example/{id}/custom_action_with_dict_field/',
+                        action='post',
+                        encoding='application/json',
+                        description='A custom action using a dict field in the serializer.',
+                        fields=[
+                            coreapi.Field('id', required=True, location='path', schema=coreschema.String()),
+                            coreapi.Field('a', required=True, location='form', schema=coreschema.Object(title='A')),
+                        ]
+                    ),
                     'custom_action_with_list_fields': coreapi.Link(
                         url='/example/{id}/custom_action_with_list_fields/',
                         action='post',
@@ -218,12 +274,46 @@ class TestRouterGeneratedSchema(TestCase):
                     'custom_list_action_multiple_methods': {
                         'read': coreapi.Link(
                             url='/example/custom_list_action_multiple_methods/',
-                            action='get'
+                            action='get',
+                            description='Custom description.',
                         ),
                         'create': coreapi.Link(
                             url='/example/custom_list_action_multiple_methods/',
-                            action='post'
-                        )
+                            action='post',
+                            description='Custom description.',
+                        ),
+                        'delete': coreapi.Link(
+                            url='/example/custom_list_action_multiple_methods/',
+                            action='delete',
+                            description='Deletion description.',
+                        ),
+                    },
+                    'documented_custom_action': {
+                        'read': coreapi.Link(
+                            url='/example/documented_custom_action/',
+                            action='get',
+                            description='A description of the get method on the custom action.',
+                        ),
+                        'create': coreapi.Link(
+                            url='/example/documented_custom_action/',
+                            action='post',
+                            description='A description of the post method on the custom action.',
+                            encoding='application/json',
+                            fields=[
+                                coreapi.Field('a', required=True, location='form', schema=coreschema.String(title='A', description='A field description')),
+                                coreapi.Field('b', required=False, location='form', schema=coreschema.String(title='B'))
+                            ]
+                        ),
+                        'update': coreapi.Link(
+                            url='/example/documented_custom_action/',
+                            action='put',
+                            description='A description of the put method on the custom action from mapping.',
+                            encoding='application/json',
+                            fields=[
+                                coreapi.Field('a', required=True, location='form', schema=coreschema.String(title='A', description='A field description')),
+                                coreapi.Field('b', required=False, location='form', schema=coreschema.String(title='B'))
+                            ]
+                        ),
                     },
                     'update': coreapi.Link(
                         url='/example/{id}/',
@@ -471,7 +561,7 @@ class TestSchemaGeneratorNotAtRoot(TestCase):
 class TestSchemaGeneratorWithMethodLimitedViewSets(TestCase):
     def setUp(self):
         router = DefaultRouter()
-        router.register('example1', MethodLimitedViewSet, base_name='example1')
+        router.register('example1', MethodLimitedViewSet, basename='example1')
         self.patterns = [
             url(r'^', include(router.urls))
         ]
@@ -506,8 +596,16 @@ class TestSchemaGeneratorWithMethodLimitedViewSets(TestCase):
                     'custom_list_action_multiple_methods': {
                         'read': coreapi.Link(
                             url='/example1/custom_list_action_multiple_methods/',
-                            action='get'
+                            action='get',
+                            description='Custom description.',
                         )
+                    },
+                    'documented_custom_action': {
+                        'read': coreapi.Link(
+                            url='/example1/documented_custom_action/',
+                            action='get',
+                            description='A description of the get method on the custom action.',
+                        ),
                     },
                     'read': coreapi.Link(
                         url='/example1/{id}/',
@@ -527,8 +625,8 @@ class TestSchemaGeneratorWithMethodLimitedViewSets(TestCase):
 class TestSchemaGeneratorWithRestrictedViewSets(TestCase):
     def setUp(self):
         router = DefaultRouter()
-        router.register('example1', Http404ExampleViewSet, base_name='example1')
-        router.register('example2', PermissionDeniedExampleViewSet, base_name='example2')
+        router.register('example1', Http404ExampleViewSet, basename='example1')
+        router.register('example2', PermissionDeniedExampleViewSet, basename='example2')
         self.patterns = [
             url('^example/?$', ExampleListView.as_view()),
             url(r'^', include(router.urls))
@@ -553,6 +651,96 @@ class TestSchemaGeneratorWithRestrictedViewSets(TestCase):
                         fields=[]
                     ),
                 },
+            }
+        )
+        assert schema == expected
+
+
+class ForeignKeySourceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ForeignKeySource
+        fields = ('id', 'name', 'target')
+
+
+class ForeignKeySourceView(generics.CreateAPIView):
+    queryset = ForeignKeySource.objects.all()
+    serializer_class = ForeignKeySourceSerializer
+
+
+@unittest.skipUnless(coreapi, 'coreapi is not installed')
+class TestSchemaGeneratorWithForeignKey(TestCase):
+    def setUp(self):
+        self.patterns = [
+            url(r'^example/?$', ForeignKeySourceView.as_view()),
+        ]
+
+    def test_schema_for_regular_views(self):
+        """
+        Ensure that AutoField foreign keys are output as Integer.
+        """
+        generator = SchemaGenerator(title='Example API', patterns=self.patterns)
+        schema = generator.get_schema()
+
+        expected = coreapi.Document(
+            url='',
+            title='Example API',
+            content={
+                'example': {
+                    'create': coreapi.Link(
+                        url='/example/',
+                        action='post',
+                        encoding='application/json',
+                        fields=[
+                            coreapi.Field('name', required=True, location='form', schema=coreschema.String(title='Name')),
+                            coreapi.Field('target', required=True, location='form', schema=coreschema.Integer(description='Target', title='Target')),
+                        ]
+                    )
+                }
+            }
+        )
+        assert schema == expected
+
+
+class ManyToManySourceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ManyToManySource
+        fields = ('id', 'name', 'targets')
+
+
+class ManyToManySourceView(generics.CreateAPIView):
+    queryset = ManyToManySource.objects.all()
+    serializer_class = ManyToManySourceSerializer
+
+
+@unittest.skipUnless(coreapi, 'coreapi is not installed')
+class TestSchemaGeneratorWithManyToMany(TestCase):
+    def setUp(self):
+        self.patterns = [
+            url(r'^example/?$', ManyToManySourceView.as_view()),
+        ]
+
+    def test_schema_for_regular_views(self):
+        """
+        Ensure that AutoField many to many fields are output as Integer.
+        """
+        generator = SchemaGenerator(title='Example API', patterns=self.patterns)
+        schema = generator.get_schema()
+
+        expected = coreapi.Document(
+            url='',
+            title='Example API',
+            content={
+                'example': {
+                    'create': coreapi.Link(
+                        url='/example/',
+                        action='post',
+                        encoding='application/json',
+                        fields=[
+                            coreapi.Field('name', required=True, location='form', schema=coreschema.String(title='Name')),
+                            coreapi.Field('targets', required=True, location='form', schema=coreschema.Array(title='Targets', items=coreschema.Integer())),
+                        ]
+                    )
+                }
             }
         )
         assert schema == expected
@@ -598,6 +786,7 @@ class TestAutoSchema(TestCase):
         with pytest.raises(AssertionError):
             descriptor.get_link(None, None, None)  # ???: Do the dummy arguments require a tighter assert?
 
+    @pytest.mark.skipif(not coreapi, reason='coreapi is not installed')
     def test_update_fields(self):
         """
         That updating fields by-name helper is correct
@@ -633,6 +822,7 @@ class TestAutoSchema(TestCase):
         assert len(fields) == 1
         assert fields[0].required is False
 
+    @pytest.mark.skipif(not coreapi, reason='coreapi is not installed')
     def test_get_manual_fields(self):
         """That get_manual_fields is applied during get_link"""
 
@@ -653,6 +843,46 @@ class TestAutoSchema(TestCase):
         assert len(fields) == 2
         assert "my_extra_field" in [f.name for f in fields]
 
+    @pytest.mark.skipif(not coreapi, reason='coreapi is not installed')
+    def test_viewset_action_with_schema(self):
+        class CustomViewSet(GenericViewSet):
+            @action(detail=True, schema=AutoSchema(manual_fields=[
+                coreapi.Field(
+                    "my_extra_field",
+                    required=True,
+                    location="path",
+                    schema=coreschema.String()
+                ),
+            ]))
+            def extra_action(self, pk, **kwargs):
+                pass
+
+        router = SimpleRouter()
+        router.register(r'detail', CustomViewSet, basename='detail')
+
+        generator = SchemaGenerator()
+        view = generator.create_view(router.urls[0].callback, 'GET')
+        link = view.schema.get_link('/a/url/{id}/', 'GET', '')
+        fields = link.fields
+
+        assert len(fields) == 2
+        assert "my_extra_field" in [f.name for f in fields]
+
+    @pytest.mark.skipif(not coreapi, reason='coreapi is not installed')
+    def test_viewset_action_with_null_schema(self):
+        class CustomViewSet(GenericViewSet):
+            @action(detail=True, schema=None)
+            def extra_action(self, pk, **kwargs):
+                pass
+
+        router = SimpleRouter()
+        router.register(r'detail', CustomViewSet, basename='detail')
+
+        generator = SchemaGenerator()
+        view = generator.create_view(router.urls[0].callback, 'GET')
+        assert view.schema is None
+
+    @pytest.mark.skipif(not coreapi, reason='coreapi is not installed')
     def test_view_with_manual_schema(self):
 
         path = '/example'
@@ -698,6 +928,47 @@ class TestAutoSchema(TestCase):
         view = CustomView()
         link = view.schema.get_link(path, method, base_url)
         assert link == expected
+
+    @unittest.skipUnless(coreschema, 'coreschema is not installed')
+    def test_field_to_schema(self):
+        label = 'Test label'
+        help_text = 'This is a helpful test text'
+
+        cases = [
+            # tuples are ([field], [expected schema])
+            # TODO: Add remaining cases
+            (
+                serializers.BooleanField(label=label, help_text=help_text),
+                coreschema.Boolean(title=label, description=help_text)
+            ),
+            (
+                serializers.DecimalField(1000, 1000, label=label, help_text=help_text),
+                coreschema.Number(title=label, description=help_text)
+            ),
+            (
+                serializers.FloatField(label=label, help_text=help_text),
+                coreschema.Number(title=label, description=help_text)
+            ),
+            (
+                serializers.IntegerField(label=label, help_text=help_text),
+                coreschema.Integer(title=label, description=help_text)
+            ),
+            (
+                serializers.DateField(label=label, help_text=help_text),
+                coreschema.String(title=label, description=help_text, format='date')
+            ),
+            (
+                serializers.DateTimeField(label=label, help_text=help_text),
+                coreschema.String(title=label, description=help_text, format='date-time')
+            ),
+            (
+                serializers.JSONField(label=label, help_text=help_text),
+                coreschema.Object(title=label, description=help_text)
+            ),
+        ]
+
+        for case in cases:
+            self.assertEqual(field_to_schema(case[0]), case[1])
 
 
 def test_docstring_is_not_stripped_by_get_description():
@@ -806,38 +1077,6 @@ class SchemaGenerationExclusionTests(TestCase):
 
         assert should_include == expected
 
-    def test_deprecations(self):
-        with pytest.warns(PendingDeprecationWarning) as record:
-            @api_view(["GET"], exclude_from_schema=True)
-            def view(request):
-                pass
-
-        assert len(record) == 1
-        assert str(record[0].message) == (
-            "The `exclude_from_schema` argument to `api_view` is pending "
-            "deprecation. Use the `schema` decorator instead, passing `None`."
-        )
-
-        class OldFashionedExcludedView(APIView):
-            exclude_from_schema = True
-
-            def get(self, request, *args, **kwargs):
-                pass
-
-        patterns = [
-            url('^excluded-old-fashioned/$', OldFashionedExcludedView.as_view()),
-        ]
-
-        inspector = EndpointEnumerator(patterns)
-        with pytest.warns(PendingDeprecationWarning) as record:
-            inspector.get_api_endpoints()
-
-        assert len(record) == 1
-        assert str(record[0].message) == (
-            "The `OldFashionedExcludedView.exclude_from_schema` attribute is "
-            "pending deprecation. Set `schema = None` instead."
-        )
-
 
 @api_view(["GET"])
 def simple_fbv(request):
@@ -865,19 +1104,20 @@ class NamingCollisionViewSet(GenericViewSet):
     """
     permision_class = ()
 
-    @list_route()
+    @action(detail=False)
     def detail(self, request):
         return {}
 
-    @list_route(url_path='detail/export')
+    @action(detail=False, url_path='detail/export')
     def detail_export(self, request):
         return {}
 
 
 naming_collisions_router = SimpleRouter()
-naming_collisions_router.register(r'collision', NamingCollisionViewSet, base_name="collision")
+naming_collisions_router.register(r'collision', NamingCollisionViewSet, basename="collision")
 
 
+@pytest.mark.skipif(not coreapi, reason='coreapi is not installed')
 class TestURLNamingCollisions(TestCase):
     """
     Ref: https://github.com/encode/django-rest-framework/issues/4704
@@ -949,7 +1189,10 @@ class TestURLNamingCollisions(TestCase):
 
         generator = SchemaGenerator(title='Naming Colisions', patterns=patterns)
         schema = generator.get_schema()
-        desc = schema['detail_0'].description  # not important here
+
+        # not important here
+        desc_0 = schema['detail']['detail_export'].description
+        desc_1 = schema['detail_0'].description
 
         expected = coreapi.Document(
             url='',
@@ -959,12 +1202,12 @@ class TestURLNamingCollisions(TestCase):
                     'detail_export': coreapi.Link(
                         url='/from-routercollision/detail/export/',
                         action='get',
-                        description=desc)
+                        description=desc_0)
                 },
                 'detail_0': coreapi.Link(
                     url='/from-routercollision/detail/',
                     action='get',
-                    description=desc
+                    description=desc_1
                 )
             }
         )
@@ -1046,7 +1289,7 @@ def test_head_and_options_methods_are_excluded():
 
     class AViewSet(ModelViewSet):
 
-        @detail_route(methods=['options', 'get'])
+        @action(methods=['options', 'get'], detail=True)
         def custom_action(self, request, pk):
             pass
 
@@ -1059,6 +1302,7 @@ def test_head_and_options_methods_are_excluded():
     assert inspector.get_allowed_methods(callback) == ["GET"]
 
 
+@pytest.mark.skipif(not coreapi, reason='coreapi is not installed')
 class TestAutoSchemaAllowsFilters(object):
     class MockAPIView(APIView):
         filter_backends = [filters.OrderingFilter]
@@ -1105,3 +1349,13 @@ class TestAutoSchemaAllowsFilters(object):
 
     def test_FOO(self):
         assert not self._test('FOO')
+
+
+@pytest.mark.skipif(not coreapi, reason='coreapi is not installed')
+def test_schema_handles_exception():
+    schema_view = get_schema_view(permission_classes=[DenyAllUsingPermissionDenied])
+    request = factory.get('/')
+    response = schema_view(request)
+    response.render()
+    assert response.status_code == 403
+    assert "You do not have permission to perform this action." in str(response.content)

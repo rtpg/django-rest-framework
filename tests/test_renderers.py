@@ -2,30 +2,34 @@
 from __future__ import unicode_literals
 
 import re
-from collections import MutableMapping, OrderedDict
+from collections import OrderedDict
 
 import pytest
 from django.conf.urls import include, url
 from django.core.cache import cache
 from django.db import models
 from django.http.request import HttpRequest
+from django.template import loader
 from django.test import TestCase, override_settings
 from django.utils import six
 from django.utils.safestring import SafeText
 from django.utils.translation import ugettext_lazy as _
 
-import coreapi
 from rest_framework import permissions, serializers, status
+from rest_framework.compat import MutableMapping, coreapi
+from rest_framework.decorators import action
 from rest_framework.renderers import (
     AdminRenderer, BaseRenderer, BrowsableAPIRenderer, DocumentationRenderer,
     HTMLFormRenderer, JSONRenderer, SchemaJSRenderer, StaticHTMLRenderer
 )
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.routers import SimpleRouter
 from rest_framework.settings import api_settings
-from rest_framework.test import APIRequestFactory
+from rest_framework.test import APIRequestFactory, URLPatternsTestCase
 from rest_framework.utils import json
 from rest_framework.views import APIView
+from rest_framework.viewsets import ViewSet
 
 DUMMYSTATUS = status.HTTP_200_OK
 DUMMYCONTENT = 'dummycontent'
@@ -622,7 +626,18 @@ class StaticHTMLRendererTests(TestCase):
         assert result == '500 Internal Server Error'
 
 
-class BrowsableAPIRendererTests(TestCase):
+class BrowsableAPIRendererTests(URLPatternsTestCase):
+    class ExampleViewSet(ViewSet):
+        def list(self, request):
+            return Response()
+
+        @action(detail=False, name="Extra list action")
+        def list_action(self, request):
+            raise NotImplementedError
+
+    router = SimpleRouter()
+    router.register('examples', ExampleViewSet, basename='example')
+    urlpatterns = [url(r'^api/', include(router.urls))]
 
     def setUp(self):
         self.renderer = BrowsableAPIRenderer()
@@ -639,6 +654,12 @@ class BrowsableAPIRendererTests(TestCase):
         result = self.renderer.get_filter_form(data='not list',
                                                view=DummyView(), request={})
         assert result is None
+
+    def test_extra_actions_dropdown(self):
+        resp = self.client.get('/api/examples/', HTTP_ACCEPT='text/html')
+        assert 'id="extra-actions-menu"' in resp.content.decode('utf-8')
+        assert '/api/examples/list_action/' in resp.content.decode('utf-8')
+        assert '>Extra list action<' in resp.content.decode('utf-8')
 
 
 class AdminRendererTests(TestCase):
@@ -708,7 +729,77 @@ class AdminRendererTests(TestCase):
         response.render()
         self.assertContains(response, '<tr><th>Iteritems</th><td>a string</td></tr>', html=True)
 
+    def test_get_result_url(self):
+        factory = APIRequestFactory()
 
+        class DummyGenericViewsetLike(APIView):
+            lookup_field = 'test'
+
+            def reverse_action(view, *args, **kwargs):
+                self.assertEqual(kwargs['kwargs']['test'], 1)
+                return '/example/'
+
+        # get the view instance instead of the view function
+        view = DummyGenericViewsetLike.as_view()
+        request = factory.get('/')
+        response = view(request)
+        view = response.renderer_context['view']
+
+        self.assertEqual(self.renderer.get_result_url({'test': 1}, view), '/example/')
+        self.assertIsNone(self.renderer.get_result_url({}, view))
+
+    def test_get_result_url_no_result(self):
+        factory = APIRequestFactory()
+
+        class DummyView(APIView):
+            lookup_field = 'test'
+
+        # get the view instance instead of the view function
+        view = DummyView.as_view()
+        request = factory.get('/')
+        response = view(request)
+        view = response.renderer_context['view']
+
+        self.assertIsNone(self.renderer.get_result_url({'test': 1}, view))
+        self.assertIsNone(self.renderer.get_result_url({}, view))
+
+    def test_get_context_result_urls(self):
+        factory = APIRequestFactory()
+
+        class DummyView(APIView):
+            lookup_field = 'test'
+
+            def reverse_action(view, url_name, args=None, kwargs=None):
+                return '/%s/%d' % (url_name, kwargs['test'])
+
+        # get the view instance instead of the view function
+        view = DummyView.as_view()
+        request = factory.get('/')
+        response = view(request)
+
+        data = [
+            {'test': 1},
+            {'url': '/example', 'test': 2},
+            {'url': None, 'test': 3},
+            {},
+        ]
+        context = {
+            'view': DummyView(),
+            'request': Request(request),
+            'response': response
+        }
+
+        context = self.renderer.get_context(data, None, context)
+        results = context['results']
+
+        self.assertEqual(len(results), 4)
+        self.assertEqual(results[0]['url'], '/detail/1')
+        self.assertEqual(results[1]['url'], '/example')
+        self.assertEqual(results[2]['url'], None)
+        self.assertNotIn('url', results[3])
+
+
+@pytest.mark.skipif(not coreapi, reason='coreapi is not installed')
 class TestDocumentationRenderer(TestCase):
 
     def test_document_with_link_named_data(self):
@@ -737,7 +828,18 @@ class TestDocumentationRenderer(TestCase):
         html = renderer.render(document, accepted_media_type="text/html", renderer_context={"request": request})
         assert '<h1>Data Endpoint API</h1>' in html
 
+    def test_shell_code_example_rendering(self):
+        template = loader.get_template('rest_framework/docs/langs/shell.html')
+        context = {
+            'document': coreapi.Document(url='https://api.example.org/'),
+            'link_key': 'testcases > list',
+            'link': coreapi.Link(url='/data/', action='get', fields=[]),
+        }
+        html = template.render(context)
+        assert 'testcases list' in html
 
+
+@pytest.mark.skipif(not coreapi, reason='coreapi is not installed')
 class TestSchemaJSRenderer(TestCase):
 
     def test_schemajs_output(self):

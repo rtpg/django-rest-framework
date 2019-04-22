@@ -72,7 +72,7 @@ The `X-Forwarded-For` HTTP header and `REMOTE_ADDR` WSGI variable are used to un
 
 If you need to strictly identify unique client IP addresses, you'll need to first configure the number of application proxies that the API runs behind by setting the `NUM_PROXIES` setting.  This setting should be an integer of zero or more.  If set to non-zero then the client IP will be identified as being the last IP address in the `X-Forwarded-For` header, once any application proxy IP addresses have first been excluded.  If set to zero, then the `REMOTE_ADDR` value will always be used as the identifying IP address.
 
-It is important to understand that if you configure the `NUM_PROXIES` setting, then all clients behind a unique [NAT'd](http://en.wikipedia.org/wiki/Network_address_translation) gateway will be treated as a single client.
+It is important to understand that if you configure the `NUM_PROXIES` setting, then all clients behind a unique [NAT'd](https://en.wikipedia.org/wiki/Network_address_translation) gateway will be treated as a single client.
 
 Further context on how the `X-Forwarded-For` header works, and identifying a remote client IP can be [found here][identifing-clients].
 
@@ -82,8 +82,10 @@ The throttle classes provided by REST framework use Django's cache backend.  You
 
 If you need to use a cache other than `'default'`, you can do so by creating a custom throttle class and setting the `cache` attribute.  For example:
 
+    from django.core.cache import caches
+
     class CustomAnonRateThrottle(AnonRateThrottle):
-        cache = get_cache('alternate')
+        cache = caches['alternate']
 
 You'll need to remember to also set your custom throttle class in the `'DEFAULT_THROTTLE_CLASSES'` settings key, or using the `throttle_classes` view attribute.
 
@@ -190,7 +192,7 @@ The following is an example of a rate throttle, that will randomly throttle 1 in
         def allow_request(self, request, view):
             return random.randint(1, 10) != 1
 
-[cite]: https://dev.twitter.com/docs/error-codes-responses
+[cite]: https://developer.twitter.com/en/docs/basics/rate-limiting
 [permissions]: permissions.md
 [identifing-clients]: http://oxpedia.org/wiki/index.php?title=AppSuite:Grizzly#Multiple_Proxies_in_front_of_the_cluster
 [cache-setting]: https://docs.djangoproject.com/en/stable/ref/settings/#caches

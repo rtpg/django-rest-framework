@@ -41,14 +41,6 @@ Setting this to `False` also allows the object attribute or dictionary key to be
 
 Defaults to `True`.
 
-### `allow_null`
-
-Normally an error will be raised if `None` is passed to a serializer field. Set this keyword argument to `True` if `None` should be considered a valid value.
-
-Note that setting this argument to `True` will imply a default value of `null` for serialization output, but does imply a default for input deserialization.
-
-Defaults to `False`
-
 ### `default`
 
 If set, this gives the default value that will be used for the field if no input value is supplied. If not set the default behaviour is to not populate the attribute at all.
@@ -60,6 +52,14 @@ May be set to a function or other callable, in which case the value will be eval
 When serializing the instance, default will be used if the the object attribute or dictionary key is not present in the instance.
 
 Note that setting a `default` value implies that the field is not required. Including both the `default` and `required` keyword arguments is invalid and will raise an error.
+
+### `allow_null`
+
+Normally an error will be raised if `None` is passed to a serializer field. Set this keyword argument to `True` if `None` should be considered a valid value.
+
+Note that, without an explicit `default`, setting this argument to `True` will imply a `default` value of `null` for serialization output, but does not imply a default for input deserialization.
+
+Defaults to `False`
 
 ### `source`
 
@@ -124,7 +124,14 @@ A boolean representation.
 
 When using HTML encoded form input be aware that omitting a value will always be treated as setting a field to `False`, even if it has a `default=True` option specified. This is because HTML checkbox inputs represent the unchecked state by omitting the value, so REST framework treats omission as if it is an empty checkbox input.
 
-Note that default `BooleanField` instances will be generated with a `required=False` option (since Django `models.BooleanField` is always `blank=True`). If you want to change this behaviour explicitly declare the `BooleanField` on the serializer class.
+Note that Django 2.1 removed the `blank` kwarg from `models.BooleanField`.
+Prior to Django 2.1 `models.BooleanField` fields were always `blank=True`. Thus
+since Django 2.1 default `serializers.BooleanField` instances will be generated
+without the `required` kwarg (i.e. equivalent to `required=True`) whereas with
+previous versions of Django, default `BooleanField` instances will be generated
+with a `required=False` option.  If you want to control this behaviour manually,
+explicitly declare the `BooleanField` on the serializer class, or use the
+`extra_kwargs` option to set the `required` flag.
 
 Corresponds to `django.db.models.fields.BooleanField`.
 
@@ -299,10 +306,11 @@ A date and time representation.
 
 Corresponds to `django.db.models.fields.DateTimeField`.
 
-**Signature:** `DateTimeField(format=api_settings.DATETIME_FORMAT, input_formats=None)`
+**Signature:** `DateTimeField(format=api_settings.DATETIME_FORMAT, input_formats=None, default_timezone=None)`
 
 * `format` - A string representing the output format. If not specified, this defaults to the same value as the `DATETIME_FORMAT` settings key, which will be `'iso-8601'` unless set. Setting to a format string indicates that `to_representation` return values should be coerced to string output. Format strings are described below. Setting this value to `None` indicates that Python `datetime` objects should be returned by `to_representation`. In this case the datetime encoding will be determined by the renderer.
 * `input_formats` - A list of strings representing the input formats which may be used to parse the date.  If not specified, the `DATETIME_INPUT_FORMATS` setting will be used, which defaults to `['iso-8601']`.
+* `default_timezone` - A `pytz.timezone` representing the timezone. If not specified and the `USE_TZ` setting is enabled, this defaults to the [current timezone][django-current-timezone]. If `USE_TZ` is disabled, then datetime objects will be naive.
 
 #### `DateTimeField` format strings.
 
@@ -360,7 +368,10 @@ Corresponds to `django.db.models.fields.DurationField`
 The `validated_data` for these fields will contain a `datetime.timedelta` instance.
 The representation is a string following this format `'[DD] [HH:[MM:]]ss[.uuuuuu]'`.
 
-**Signature:** `DurationField()`
+**Signature:** `DurationField(max_value=None, min_value=None)`
+
+- `max_value` Validate that the duration provided is no greater than this value.
+- `min_value` Validate that the duration provided is no less than this value.
 
 ---
 
@@ -473,6 +484,16 @@ You can also use the declarative style, as with `ListField`. For example:
     class DocumentField(DictField):
         child = CharField()
 
+## HStoreField
+
+A preconfigured `DictField` that is compatible with Django's postgres `HStoreField`.
+
+**Signature**: `HStoreField(child=<A_FIELD_INSTANCE>)`
+
+- `child` - A field instance that is used for validating the values in the dictionary. The default child field accepts both empty strings and null values.
+
+Note that the child field **must** be an instance of `CharField`, as the hstore extension stores values as strings.
+
 ## JSONField
 
 A field class that validates that the incoming data structure consists of valid JSON primitives. In its alternate binary mode, it will represent and validate JSON-encoded binary strings.
@@ -578,8 +599,8 @@ Let's look at an example of serializing a class that represents an RGB color val
         """
         Color objects are serialized into 'rgb(#, #, #)' notation.
         """
-        def to_representation(self, obj):
-            return "rgb(%d, %d, %d)" % (obj.red, obj.green, obj.blue)
+        def to_representation(self, value):
+            return "rgb(%d, %d, %d)" % (value.red, value.green, value.blue)
 
         def to_internal_value(self, data):
             data = data.strip('rgb(').rstrip(')')
@@ -591,16 +612,16 @@ By default field values are treated as mapping to an attribute on the object.  I
 As an example, let's create a field that can be used to represent the class name of the object being serialized:
 
     class ClassNameField(serializers.Field):
-        def get_attribute(self, obj):
+        def get_attribute(self, instance):
             # We pass the object instance onto `to_representation`,
             # not just the field attribute.
-            return obj
+            return instance
 
-        def to_representation(self, obj):
+        def to_representation(self, value):
             """
-            Serialize the object's class name.
+            Serialize the value's class name.
             """
-            return obj.__class__.__name__
+            return value.__class__.__name__
 
 ### Raising validation errors
 
@@ -662,10 +683,10 @@ the coordinate pair:
 
     class CoordinateField(serializers.Field):
 
-        def to_representation(self, obj):
+        def to_representation(self, value):
             ret = {
-                "x": obj.x_coordinate,
-                "y": obj.y_coordinate
+                "x": value.x_coordinate,
+                "y": value.y_coordinate
             }
             return ret
 
@@ -791,7 +812,7 @@ The [drf-compound-fields][drf-compound-fields] package provides "compound" seria
 
 The [drf-extra-fields][drf-extra-fields] package provides extra serializer fields for REST framework, including `Base64ImageField` and `PointField` classes.
 
-## djangrestframework-recursive
+## djangorestframework-recursive
 
 the [djangorestframework-recursive][djangorestframework-recursive] package provides a `RecursiveField` for serializing and deserializing recursive structures
 
@@ -806,10 +827,8 @@ The [django-rest-framework-hstore][django-rest-framework-hstore] package provide
 [cite]: https://docs.djangoproject.com/en/stable/ref/forms/api/#django.forms.Form.cleaned_data
 [html-and-forms]: ../topics/html-and-forms.md
 [FILE_UPLOAD_HANDLERS]: https://docs.djangoproject.com/en/stable/ref/settings/#std:setting-FILE_UPLOAD_HANDLERS
-[ecma262]: http://ecma-international.org/ecma-262/5.1/#sec-15.9.1.15
 [strftime]: https://docs.python.org/3/library/datetime.html#strftime-and-strptime-behavior
-[django-widgets]: https://docs.djangoproject.com/en/stable/ref/forms/widgets/
-[iso8601]: http://www.w3.org/TR/NOTE-datetime
+[iso8601]: https://www.w3.org/TR/NOTE-datetime
 [drf-compound-fields]: https://drf-compound-fields.readthedocs.io
 [drf-extra-fields]: https://github.com/Hipo/drf-extra-fields
 [djangorestframework-recursive]: https://github.com/heywbj/django-rest-framework-recursive
@@ -817,3 +836,4 @@ The [django-rest-framework-hstore][django-rest-framework-hstore] package provide
 [django-rest-framework-hstore]: https://github.com/djangonauts/django-rest-framework-hstore
 [django-hstore]: https://github.com/djangonauts/django-hstore
 [python-decimal-rounding-modes]: https://docs.python.org/3/library/decimal.html#rounding-modes
+[django-current-timezone]: https://docs.djangoproject.com/en/stable/topics/i18n/timezones/#default-time-zone-and-current-time-zone

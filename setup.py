@@ -6,18 +6,11 @@ import shutil
 import sys
 from io import open
 
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
-try:
-    from pypandoc import convert_file
 
-    def read_md(f):
-        return convert_file(f, 'rst')
-except ImportError:
-    print("warning: pypandoc module not found, could not convert Markdown to RST")
-
-    def read_md(f):
-        return open(f, 'r', encoding='utf-8').read()
+def read(f):
+    return open(f, 'r', encoding='utf-8').read()
 
 
 def get_version(package):
@@ -32,10 +25,6 @@ version = get_version('rest_framework')
 
 
 if sys.argv[-1] == 'publish':
-    try:
-        import pypandoc
-    except ImportError:
-        print("pypandoc not installed.\nUse `pip install pypandoc`.\nExiting.")
     if os.system("pip freeze | grep twine"):
         print("twine not installed.\nUse `pip install twine`.\nExiting.")
         sys.exit()
@@ -53,23 +42,26 @@ if sys.argv[-1] == 'publish':
 setup(
     name='djangorestframework',
     version=version,
-    url='http://www.django-rest-framework.org',
+    url='https://www.django-rest-framework.org/',
     license='BSD',
     description='Web APIs for Django, made easy.',
-    long_description=read_md('README.md'),
+    long_description=read('README.md'),
+    long_description_content_type='text/markdown',
     author='Tom Christie',
     author_email='tom@tomchristie.com',  # SEE NOTE BELOW (*)
     packages=find_packages(exclude=['tests*']),
     include_package_data=True,
     install_requires=[],
+    python_requires=">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*",
     zip_safe=False,
     classifiers=[
         'Development Status :: 5 - Production/Stable',
         'Environment :: Web Environment',
         'Framework :: Django',
-        'Framework :: Django :: 1.10',
         'Framework :: Django :: 1.11',
         'Framework :: Django :: 2.0',
+        'Framework :: Django :: 2.1',
+        'Framework :: Django :: 2.2',
         'Intended Audience :: Developers',
         'License :: OSI Approved :: BSD License',
         'Operating System :: OS Independent',
@@ -80,6 +72,7 @@ setup(
         'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
         'Topic :: Internet :: WWW/HTTP',
     ]
 )

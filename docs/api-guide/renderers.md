@@ -89,7 +89,7 @@ The default JSON encoding style can be altered using the `UNICODE_JSON` and `COM
 
 **.media_type**: `application/json`
 
-**.format**: `'.json'`
+**.format**: `'json'`
 
 **.charset**: `None`
 
@@ -127,7 +127,7 @@ See the [_HTML & Forms_ Topic Page][html-and-forms] for further examples of `Tem
 
 **.media_type**: `text/html`
 
-**.format**: `'.html'`
+**.format**: `'html'`
 
 **.charset**: `utf-8`
 
@@ -149,7 +149,7 @@ You can use `StaticHTMLRenderer` either to return regular HTML pages using REST 
 
 **.media_type**: `text/html`
 
-**.format**: `'.html'`
+**.format**: `'html'`
 
 **.charset**: `utf-8`
 
@@ -165,7 +165,7 @@ This renderer will determine which other renderer would have been given highest 
 
 **.media_type**: `text/html`
 
-**.format**: `'.api'`
+**.format**: `'api'`
 
 **.charset**: `utf-8`
 
@@ -200,7 +200,7 @@ Note that views that have nested or list serializers for their input won't work 
 
 **.media_type**: `text/html`
 
-**.format**: `'.admin'`
+**.format**: `'admin'`
 
 **.charset**: `utf-8`
 
@@ -224,7 +224,7 @@ For more information see the [HTML & Forms][html-and-forms] documentation.
 
 **.media_type**: `text/html`
 
-**.format**: `'.form'`
+**.format**: `'form'`
 
 **.charset**: `utf-8`
 
@@ -236,7 +236,7 @@ This renderer is used for rendering HTML multipart form data.  **It is not suita
 
 **.media_type**: `multipart/form-data; boundary=BoUnDaRyStRiNg`
 
-**.format**: `'.multipart'`
+**.format**: `'multipart'`
 
 **.charset**: `utf-8`
 
@@ -457,6 +457,43 @@ Modify your REST framework settings.
 
 [MessagePack][messagepack] is a fast, efficient binary serialization format.  [Juan Riaza][juanriaza] maintains the [djangorestframework-msgpack][djangorestframework-msgpack] package which provides MessagePack renderer and parser support for REST framework.
 
+## XLSX (Binary Spreadsheet Endpoints)
+
+XLSX is the world's most popular binary spreadsheet format. [Tim Allen][flipperpa] of [The Wharton School][wharton] maintains [drf-renderer-xlsx][drf-renderer-xlsx], which renders an endpoint as an XLSX spreadsheet using OpenPyXL, and allows the client to download it. Spreadsheets can be styled on a per-view basis.
+
+#### Installation & configuration
+
+Install using pip.
+
+    $ pip install drf-renderer-xlsx
+
+Modify your REST framework settings.
+
+    REST_FRAMEWORK = {
+        ...
+
+        'DEFAULT_RENDERER_CLASSES': (
+            'rest_framework.renderers.JSONRenderer',
+            'rest_framework.renderers.BrowsableAPIRenderer',
+            'drf_renderer_xlsx.renderers.XLSXRenderer',
+        ),
+    }
+
+To avoid having a file streamed without a filename (which the browser will often default to the filename "download", with no extension), we need to use a mixin to override the `Content-Disposition` header. If no filename is provided, it will default to `export.xlsx`. For example:
+
+    from rest_framework.viewsets import ReadOnlyModelViewSet
+    from drf_renderer_xlsx.mixins import XLSXFileMixin
+    from drf_renderer_xlsx.renderers import XLSXRenderer
+
+    from .models import MyExampleModel
+    from .serializers import MyExampleSerializer
+
+    class MyExampleViewSet(XLSXFileMixin, ReadOnlyModelViewSet):
+        queryset = MyExampleModel.objects.all()
+        serializer_class = MyExampleSerializer
+        renderer_classes = (XLSXRenderer,)
+        filename = 'my_export.xlsx'
+
 ## CSV
 
 Comma-separated values are a plain-text tabular data format, that can be easily imported into spreadsheet applications. [Mjumbe Poe][mjumbewu] maintains the [djangorestframework-csv][djangorestframework-csv] package which provides CSV renderer support for REST framework.
@@ -484,22 +521,25 @@ Comma-separated values are a plain-text tabular data format, that can be easily 
 [browser-accept-headers]: http://www.gethifi.com/blog/browser-rest-http-accept-headers
 [testing]: testing.md
 [HATEOAS]: http://timelessrepo.com/haters-gonna-hateoas
-[quote]: http://roy.gbiv.com/untangled/2008/rest-apis-must-be-hypertext-driven
-[application/vnd.github+json]: http://developer.github.com/v3/media/
+[quote]: https://roy.gbiv.com/untangled/2008/rest-apis-must-be-hypertext-driven
+[application/vnd.github+json]: https://developer.github.com/v3/media/
 [application/vnd.collection+json]: http://www.amundsen.com/media-types/collection/
 [django-error-views]: https://docs.djangoproject.com/en/stable/topics/http/views/#customizing-error-views
-[rest-framework-jsonp]: http://jpadilla.github.io/django-rest-framework-jsonp/
-[cors]: http://www.w3.org/TR/cors/
-[cors-docs]: http://www.django-rest-framework.org/topics/ajax-csrf-cors/
-[jsonp-security]: http://stackoverflow.com/questions/613962/is-jsonp-safe-to-use
-[rest-framework-yaml]: http://jpadilla.github.io/django-rest-framework-yaml/
-[rest-framework-xml]: http://jpadilla.github.io/django-rest-framework-xml/
-[messagepack]: http://msgpack.org/
+[rest-framework-jsonp]: https://jpadilla.github.io/django-rest-framework-jsonp/
+[cors]: https://www.w3.org/TR/cors/
+[cors-docs]: https://www.django-rest-framework.org/topics/ajax-csrf-cors/
+[jsonp-security]: https://stackoverflow.com/questions/613962/is-jsonp-safe-to-use
+[rest-framework-yaml]: https://jpadilla.github.io/django-rest-framework-yaml/
+[rest-framework-xml]: https://jpadilla.github.io/django-rest-framework-xml/
+[messagepack]: https://msgpack.org/
 [juanriaza]: https://github.com/juanriaza
 [mjumbewu]: https://github.com/mjumbewu
+[flipperpa]: https://githuc.com/flipperpa
+[wharton]: https://github.com/wharton
+[drf-renderer-xlsx]: https://github.com/wharton/drf-renderer-xlsx
 [vbabiy]: https://github.com/vbabiy
-[rest-framework-yaml]: http://jpadilla.github.io/django-rest-framework-yaml/
-[rest-framework-xml]: http://jpadilla.github.io/django-rest-framework-xml/
+[rest-framework-yaml]: https://jpadilla.github.io/django-rest-framework-yaml/
+[rest-framework-xml]: https://jpadilla.github.io/django-rest-framework-xml/
 [yaml]: http://www.yaml.org/
 [djangorestframework-msgpack]: https://github.com/juanriaza/django-rest-framework-msgpack
 [djangorestframework-csv]: https://github.com/mjumbewu/django-rest-framework-csv
@@ -508,7 +548,7 @@ Comma-separated values are a plain-text tabular data format, that can be easily 
 [drf-ujson-renderer]: https://github.com/gizmag/drf-ujson-renderer
 [djangorestframework-camel-case]: https://github.com/vbabiy/djangorestframework-camel-case
 [Django REST Pandas]: https://github.com/wq/django-rest-pandas
-[Pandas]: http://pandas.pydata.org/
+[Pandas]: https://pandas.pydata.org/
 [other formats]: https://github.com/wq/django-rest-pandas#supported-formats
 [sheppard]: https://github.com/sheppard
 [wq]: https://github.com/wq

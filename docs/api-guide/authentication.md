@@ -137,7 +137,7 @@ You'll also need to create tokens for your users.
     from rest_framework.authtoken.models import Token
 
     token = Token.objects.create(user=...)
-    print token.key
+    print(token.key)
 
 For clients to authenticate, the token key should be included in the `Authorization` HTTP header.  The key should be prefixed by the string literal "Token", with whitespace separating the two strings.  For example:
 
@@ -205,10 +205,38 @@ The `obtain_auth_token` view will return a JSON response when valid `username` a
 
     { 'token' : '9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b' }
 
-Note that the default `obtain_auth_token` view explicitly uses JSON requests and responses, rather than using default renderer and parser classes in your settings.  If you need a customized version of the `obtain_auth_token` view, you can do so by overriding the `ObtainAuthToken` view class, and using that in your url conf instead.
+Note that the default `obtain_auth_token` view explicitly uses JSON requests and responses, rather than using default renderer and parser classes in your settings.
 
 By default there are no permissions or throttling applied to the  `obtain_auth_token` view. If you do wish to apply throttling you'll need to override the view class,
 and include them using the `throttle_classes` attribute.
+
+If you need a customized version of the `obtain_auth_token` view, you can do so by subclassing the `ObtainAuthToken` view class, and using that in your url conf instead.
+
+For example, you may return additional user information beyond the `token` value:
+
+    from rest_framework.authtoken.views import ObtainAuthToken
+    from rest_framework.authtoken.models import Token
+    from rest_framework.response import Response
+
+    class CustomAuthToken(ObtainAuthToken):
+
+        def post(self, request, *args, **kwargs):
+            serializer = self.serializer_class(data=request.data,
+                                               context={'request': request})
+            serializer.is_valid(raise_exception=True)
+            user = serializer.validated_data['user']
+            token, created = Token.objects.get_or_create(user=user)
+            return Response({
+                'token': token.key,
+                'user_id': user.pk,
+                'email': user.email
+            })
+
+And in your `urls.py`:
+
+    urlpatterns += [
+        url(r'^api-token-auth/', CustomAuthToken.as_view())
+    ]
 
 
 ##### With Django admin
@@ -363,17 +391,9 @@ Install the package using `pip`.
 
 For details on configuration and usage see the Django REST framework OAuth documentation for [authentication][django-rest-framework-oauth-authentication] and [permissions][django-rest-framework-oauth-permissions].
 
-## Digest Authentication
-
-HTTP digest authentication is a widely implemented scheme that was intended to replace HTTP basic authentication, and which provides a simple encrypted authentication mechanism. [Juan Riaza][juanriaza] maintains the [djangorestframework-digestauth][djangorestframework-digestauth] package which provides HTTP digest authentication support for REST framework.
-
-## Django OAuth2 Consumer
-
-The [Django OAuth2 Consumer][doac] library from [Rediker Software][rediker] is another package that provides [OAuth 2.0 support for REST framework][doac-rest-framework].  The package includes token scoping permissions on tokens, which allows finer-grained access to your API.
-
 ## JSON Web Token Authentication
 
-JSON Web Token is a fairly new standard which can be used for token-based authentication. Unlike the built-in TokenAuthentication scheme, JWT Authentication doesn't need to use a database to validate a token. [Blimp][blimp] maintains the [djangorestframework-jwt][djangorestframework-jwt] package which provides a JWT Authentication class as well as a mechanism for clients to obtain a JWT given the username and password. An alternative package for JWT authentication is [djangorestframework-simplejwt][djangorestframework-simplejwt] which provides different features as well as a pluggable token blacklist app.
+JSON Web Token is a fairly new standard which can be used for token-based authentication. Unlike the built-in TokenAuthentication scheme, JWT Authentication doesn't need to use a database to validate a token. A package for JWT authentication is [djangorestframework-simplejwt][djangorestframework-simplejwt] which provides some features as well as a pluggable token blacklist app.
 
 ## Hawk HTTP Authentication
 
@@ -381,7 +401,7 @@ The [HawkREST][hawkrest] library builds on the [Mohawk][mohawk] library to let y
 
 ## HTTP Signature Authentication
 
-HTTP Signature (currently a [IETF draft][http-signature-ietf-draft]) provides a way to achieve origin authentication and message integrity for HTTP messages. Similar to [Amazon's HTTP Signature scheme][amazon-http-signature], used by many of its services, it permits stateless, per-request authentication. [Elvio Toccalino][etoccalino] maintains the [djangorestframework-httpsignature][djangorestframework-httpsignature] package which provides an easy to use HTTP Signature Authentication mechanism.
+HTTP Signature (currently a [IETF draft][http-signature-ietf-draft]) provides a way to achieve origin authentication and message integrity for HTTP messages. Similar to [Amazon's HTTP Signature scheme][amazon-http-signature], used by many of its services, it permits stateless, per-request authentication. [Elvio Toccalino][etoccalino] maintains the [djangorestframework-httpsignature][djangorestframework-httpsignature] (outdated) package which provides an easy to use HTTP Signature Authentication mechanism. You can use the updated fork version of [djangorestframework-httpsignature][djangorestframework-httpsignature], which is [drf-httpsig][drf-httpsig].
 
 ## Djoser
 
@@ -403,43 +423,34 @@ HTTP Signature (currently a [IETF draft][http-signature-ietf-draft]) provides a 
 
 [drfpasswordless][drfpasswordless] adds (Medium, Square Cash inspired) passwordless support to Django REST Framework's own TokenAuthentication scheme. Users log in and sign up with a token sent to a contact point like an email address or a mobile number.
 
-[cite]: http://jacobian.org/writing/rest-worst-practices/
-[http401]: http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html#sec10.4.2
-[http403]: http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html#sec10.4.4
-[basicauth]: http://tools.ietf.org/html/rfc2617
-[oauth]: http://oauth.net/2/
+[cite]: https://jacobian.org/writing/rest-worst-practices/
+[http401]: https://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html#sec10.4.2
+[http403]: https://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html#sec10.4.4
+[basicauth]: https://tools.ietf.org/html/rfc2617
 [permission]: permissions.md
 [throttling]: throttling.md
 [csrf-ajax]: https://docs.djangoproject.com/en/stable/ref/csrf/#ajax
-[mod_wsgi_official]: http://code.google.com/p/modwsgi/wiki/ConfigurationDirectives#WSGIPassAuthorization
+[mod_wsgi_official]: https://modwsgi.readthedocs.io/en/develop/configuration-directives/WSGIPassAuthorization.html
 [django-oauth-toolkit-getting-started]: https://django-oauth-toolkit.readthedocs.io/en/latest/rest-framework/getting_started.html
-[django-rest-framework-oauth]: http://jpadilla.github.io/django-rest-framework-oauth/
-[django-rest-framework-oauth-authentication]: http://jpadilla.github.io/django-rest-framework-oauth/authentication/
-[django-rest-framework-oauth-permissions]: http://jpadilla.github.io/django-rest-framework-oauth/permissions/
+[django-rest-framework-oauth]: https://jpadilla.github.io/django-rest-framework-oauth/
+[django-rest-framework-oauth-authentication]: https://jpadilla.github.io/django-rest-framework-oauth/authentication/
+[django-rest-framework-oauth-permissions]: https://jpadilla.github.io/django-rest-framework-oauth/permissions/
 [juanriaza]: https://github.com/juanriaza
 [djangorestframework-digestauth]: https://github.com/juanriaza/django-rest-framework-digestauth
-[oauth-1.0a]: http://oauth.net/core/1.0a
-[django-oauth-plus]: http://code.larlet.fr/django-oauth-plus
-[django-oauth2-provider]: https://github.com/caffeinehit/django-oauth2-provider
-[django-oauth2-provider-docs]: https://django-oauth2-provider.readthedocs.io/en/latest/
-[rfc6749]: http://tools.ietf.org/html/rfc6749
+[oauth-1.0a]: https://oauth.net/core/1.0a/
 [django-oauth-toolkit]: https://github.com/evonove/django-oauth-toolkit
 [evonove]: https://github.com/evonove/
 [oauthlib]: https://github.com/idan/oauthlib
-[doac]: https://github.com/Rediker-Software/doac
-[rediker]: https://github.com/Rediker-Software
-[doac-rest-framework]: https://github.com/Rediker-Software/doac/blob/master/docs/integrations.md#
-[blimp]: https://github.com/GetBlimp
-[djangorestframework-jwt]: https://github.com/GetBlimp/django-rest-framework-jwt
 [djangorestframework-simplejwt]: https://github.com/davesque/django-rest-framework-simplejwt
 [etoccalino]: https://github.com/etoccalino/
 [djangorestframework-httpsignature]: https://github.com/etoccalino/django-rest-framework-httpsignature
-[amazon-http-signature]: http://docs.aws.amazon.com/general/latest/gr/signature-version-4.html
+[drf-httpsig]: https://github.com/ahknight/drf-httpsig
+[amazon-http-signature]: https://docs.aws.amazon.com/general/latest/gr/signature-version-4.html
 [http-signature-ietf-draft]: https://datatracker.ietf.org/doc/draft-cavage-http-signatures/
 [hawkrest]: https://hawkrest.readthedocs.io/en/latest/
 [hawk]: https://github.com/hueniverse/hawk
 [mohawk]: https://mohawk.readthedocs.io/en/latest/
-[mac]: http://tools.ietf.org/html/draft-hammer-oauth-v2-mac-token-05
+[mac]: https://tools.ietf.org/html/draft-hammer-oauth-v2-mac-token-05
 [djoser]: https://github.com/sunscrapers/djoser
 [django-rest-auth]: https://github.com/Tivix/django-rest-auth
 [django-rest-framework-social-oauth2]: https://github.com/PhilipGarnero/django-rest-framework-social-oauth2

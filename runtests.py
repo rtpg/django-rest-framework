@@ -1,20 +1,19 @@
 #! /usr/bin/env python
 from __future__ import print_function
 
-import os
 import subprocess
 import sys
 
 import pytest
 
 PYTEST_ARGS = {
-    'default': ['tests', '--tb=short', '-s', '-rw'],
-    'fast': ['tests', '--tb=short', '-q', '-s', '-rw'],
+    'default': [],
+    'fast': ['-q'],
 }
 
 FLAKE8_ARGS = ['rest_framework', 'tests']
 
-ISORT_ARGS = ['--recursive', '--check-only', '-o' 'uritemplate', '-p', 'tests', 'rest_framework', 'tests']
+ISORT_ARGS = ['--recursive', '--check-only', '--diff', '-o' 'uritemplate', '-p', 'tests', 'rest_framework', 'tests']
 
 
 def exit_on_failure(ret, message=None):
@@ -82,20 +81,6 @@ if __name__ == "__main__":
         run_flake8 = False
         run_isort = False
 
-    try:
-        # Remove the package root directory from `sys.path`, ensuring that rest_framework
-        # is imported from the installed site packages. Used for testing the distribution
-        sys.argv.remove('--no-pkgroot')
-    except ValueError:
-        pass
-    else:
-        sys.path.pop(0)
-
-        # import rest_framework before pytest re-adds the package root directory.
-        import rest_framework
-        package_dir = os.path.join(os.getcwd(), 'rest_framework')
-        assert not rest_framework.__file__.startswith(package_dir)
-
     if len(sys.argv) > 1:
         pytest_args = sys.argv[1:]
         first_arg = pytest_args[0]
@@ -106,10 +91,9 @@ if __name__ == "__main__":
             pass
         else:
             pytest_args = [
-                '--cov-report',
-                'xml',
-                '--cov',
-                'rest_framework'] + pytest_args
+                '--cov', '.',
+                '--cov-report', 'xml',
+            ] + pytest_args
 
         if first_arg.startswith('-'):
             # `runtests.py [flags]`

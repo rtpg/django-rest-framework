@@ -119,7 +119,7 @@ Extends [Django's existing `Client` class][client].
 
 ## Making requests
 
-The `APIClient` class supports the same request interface as Django's standard `Client` class.  This means the that standard `.get()`, `.post()`, `.put()`, `.patch()`, `.delete()`, `.head()` and `.options()` methods are all available.  For example:
+The `APIClient` class supports the same request interface as Django's standard `Client` class.  This means that the standard `.get()`, `.post()`, `.put()`, `.patch()`, `.delete()`, `.head()` and `.options()` methods are all available.  For example:
 
     from rest_framework.test import APIClient
 
@@ -201,13 +201,15 @@ live environment. (See "Live tests" below.)
 This exposes exactly the same interface as if you were using a requests session
 directly.
 
+    from rest_framework.test import RequestsClient
+    
     client = RequestsClient()
     response = client.get('http://testserver/users/')
     assert response.status_code == 200
 
 Note that the requests client requires you to pass fully qualified URLs.
 
-## `RequestsClient` and working with the database
+## RequestsClient and working with the database
 
 The `RequestsClient` class is useful if you want to write tests that solely interact with the service interface. This is a little stricter than using the standard Django test client, as it means that all interactions should be via the API.
 
@@ -237,12 +239,12 @@ For example...
     client = RequestsClient()
 
     # Obtain a CSRF token.
-    response = client.get('/homepage/')
+    response = client.get('http://testserver/homepage/')
     assert response.status_code == 200
     csrftoken = response.cookies['csrftoken']
 
     # Interact with the API.
-    response = client.post('/organisations/', json={
+    response = client.post('http://testserver/organisations/', json={
         'name': 'MegaCorp',
         'status': 'active'
     }, headers={'X-CSRFToken': csrftoken})
@@ -292,7 +294,7 @@ similar way as with `RequestsClient`.
 
 ---
 
-# Test cases
+# API Test cases
 
 REST framework includes the following test case classes, that mirror the existing Django test case classes, but use `APIClient` instead of Django's default `Client`.
 
@@ -321,6 +323,32 @@ You can use any of REST framework's test case classes as you would for the regul
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             self.assertEqual(Account.objects.count(), 1)
             self.assertEqual(Account.objects.get().name, 'DabApps')
+
+---
+
+# URLPatternsTestCase
+
+REST framework also provides a test case class for isolating `urlpatterns` on a per-class basis. Note that this inherits from Django's `SimpleTestCase`, and will most likely need to be mixed with another test case class.
+
+## Example
+
+    from django.urls import include, path, reverse
+    from rest_framework.test import APITestCase, URLPatternsTestCase
+
+
+    class AccountTests(APITestCase, URLPatternsTestCase):
+        urlpatterns = [
+            path('api/', include('api.urls')),
+        ]
+
+        def test_create_account(self):
+            """
+            Ensure we can create a new account object.
+            """
+            url = reverse('account-list')
+            response = self.client.get(url, format='json')
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(len(response.data), 1)
 
 ---
 
@@ -378,7 +406,7 @@ For example, to add support for using `format='html'` in test requests, you migh
         )
     }
 
-[cite]: http://jacobian.org/writing/django-apps-with-buildout/#s-create-a-test-wrapper
+[cite]: https://jacobian.org/writing/django-apps-with-buildout/#s-create-a-test-wrapper
 [client]: https://docs.djangoproject.com/en/stable/topics/testing/tools/#the-test-client
 [requestfactory]: https://docs.djangoproject.com/en/stable/topics/testing/advanced/#django.test.client.RequestFactory
 [configuration]: #configuration

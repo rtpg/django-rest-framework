@@ -189,7 +189,6 @@ A default class that can be used to *only set a default argument during create o
 It takes a single argument, which is the default value or callable that should be used during create operations.
 
     created_at = serializers.DateTimeField(
-        read_only=True,
         default=serializers.CreateOnlyDefault(timezone.now)
     )
 
@@ -223,7 +222,7 @@ For example:
 
         class Meta:
             fields = ('client', 'date', 'amount')
-            extra_kwargs = {'client': {'required': 'False'}}
+            extra_kwargs = {'client': {'required': False}}
             validators = []  # Remove a default "unique together" constraint.
 
 ## Updating nested serializers
@@ -276,7 +275,7 @@ A validator may be any callable that raises a `serializers.ValidationError` on f
 
 You can specify custom field-level validation by adding `.validate_<field_name>` methods
 to your `Serializer` subclass. This is documented in the
-[Serializer docs](http://www.django-rest-framework.org/api-guide/serializers/#field-level-validation)
+[Serializer docs](https://www.django-rest-framework.org/api-guide/serializers/#field-level-validation)
 
 ## Class-based
 
